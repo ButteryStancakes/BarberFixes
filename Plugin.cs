@@ -13,14 +13,14 @@ using UnityEngine;
 namespace BarberFixes
 {
     [BepInPlugin(PLUGIN_GUID, PLUGIN_NAME, PLUGIN_VERSION)]
-    [BepInDependency(LETHAL_FIXES, BepInDependency.DependencyFlags.SoftDependency)]
+    //[BepInDependency(LETHAL_FIXES, BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency(VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.0.0", LETHAL_FIXES = "Dev1A3.LethalFixes", VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
+        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.1.0", /*LETHAL_FIXES = "Dev1A3.LethalFixes",*/ VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
         internal static new ManualLogSource Logger;
 
-        internal static ConfigEntry<bool> configSpawnInPairs, configDrumrollFromAll;
+        internal static ConfigEntry<bool>configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings, configOnlyOneBarber;
 
         internal static bool CAN_SPAWN_IN_GROUPS;
 
@@ -28,22 +28,34 @@ namespace BarberFixes
         {
             Logger = base.Logger;
 
-            if (Chainloader.PluginInfos.ContainsKey(LETHAL_FIXES))
+            /*if (Chainloader.PluginInfos.ContainsKey(LETHAL_FIXES))
             {
                 CAN_SPAWN_IN_GROUPS = true;
                 Logger.LogInfo("CROSS-COMPATIBILITY - LethalFixes detected");
             }
-            else if (Chainloader.PluginInfos.ContainsKey(VENT_SPAWN_FIX))
+            else*/ if (Chainloader.PluginInfos.ContainsKey(VENT_SPAWN_FIX))
             {
                 CAN_SPAWN_IN_GROUPS = true;
                 Logger.LogInfo("CROSS-COMPATIBILITY - VentSpawnFix detected");
             }
 
+            configApplySpawningSettings = Config.Bind(
+                "Spawning",
+                "ApplySpawningSettings",
+                false,
+                "The rest of the \"Spawning\" section's settings are only applied if this is enabled. You should disable this if you are using something else to configure enemy variables! (i.e. LethalQuantities)");
+
+            configOnlyOneBarber = Config.Bind(
+                "Spawning",
+                "OnlyOneBarber",
+                true,
+                "(Host only) Only allow 1 Barber to spawn each day. Disabling this will raise the limit to 8 per day, as it was before v62.");
+
             configSpawnInPairs = Config.Bind(
                 "Spawning",
                 "SpawnInPairs",
                 false,
-                "(Host only) Spawns Barbers in groups of 2, like in beta v55.\nNOTE: This REQUIRES LethalFixes (by 1A3) to work!");
+                "(Host only) Spawns Barbers in groups of 2, like in beta v55. This does nothing when \"OnlyOneBarber\" is enabled.\nNOTE: This REQUIRES VentSpawnFix to work!");
 
             configDrumrollFromAll = Config.Bind(
                 "Music",
@@ -258,27 +270,48 @@ namespace BarberFixes
         [HarmonyPrefix]
         static void PrePlotOutEnemiesForNextHour(RoundManager __instance)
         {
-            if (!__instance.IsServer)
+            if (!__instance.IsServer || !Plugin.configApplySpawningSettings.Value)
                 return;
 
             int spawnInGroupsOf = 1;
             if (Plugin.configSpawnInPairs.Value)
             {
-                if (!Plugin.CAN_SPAWN_IN_GROUPS)
+                if (Plugin.CAN_SPAWN_IN_GROUPS)
                 {
-                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but LethalFixes was not detected. Enemies spawning from vents in groups is unsupported by vanilla, so this setting won't work");
-                    return;
+                    if (Plugin.configOnlyOneBarber.Value)
+                        Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but will be ignored as \"OnlyOneBarber\" is also enabled.");
+                    else
+                        spawnInGroupsOf = 2;
                 }
-
-                spawnInGroupsOf = 2;
+                else
+                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but VentSpawnFix was not detected. Enemies spawning from vents in groups is unsupported by vanilla, so this setting won't work!");
             }
 
-            EnemyType barber = __instance.currentLevel.Enemies.FirstOrDefault(enemy => enemy.enemyType.name == "ClaySurgeon")?.enemyType;
-            if (barber != null && barber.spawnInGroupsOf != spawnInGroupsOf)
+            EnemyType barber = __instance.currentLevel.Enemies.FirstOrDefault(enemy => enemy.enemyType?.name == "ClaySurgeon")?.enemyType;
+            if (barber != null)
             {
-                Plugin.Logger.LogInfo($"ClaySurgeon.spawnInGroupsOf: {barber.spawnInGroupsOf} -> {spawnInGroupsOf}");
-                barber.spawnInGroupsOf = spawnInGroupsOf;
+                if (barber.spawnInGroupsOf != spawnInGroupsOf)
+                {
+                    Plugin.Logger.LogDebug($"ClaySurgeon.spawnInGroupsOf: {barber.spawnInGroupsOf} -> {spawnInGroupsOf}");
+                    barber.spawnInGroupsOf = spawnInGroupsOf;
+                }
+                int maxCount = Plugin.configOnlyOneBarber.Value ? 1 : 8;
+                if (barber.MaxCount != maxCount)
+                {
+                    Plugin.Logger.LogDebug($"ClaySurgeon.MaxCount: {barber.MaxCount} -> {maxCount}");
+                    barber.MaxCount = maxCount;
+                }
             }
+        }
+
+        [HarmonyPatch(typeof(ClaySurgeonAI), nameof(ClaySurgeonAI.Start))]
+        [HarmonyPostfix]
+        static void ClaySurgeonAIPostStart(ClaySurgeonAI __instance, ref float ___snareIntervalTimer)
+        {
+            __instance.agent.speed = 0f;
+            ___snareIntervalTimer = 100f;
+
+
         }
 
         [HarmonyPatch(typeof(ClaySurgeonAI), nameof(ClaySurgeonAI.OnCollideWithPlayer))]
