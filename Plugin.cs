@@ -17,7 +17,7 @@ namespace BarberFixes
     [BepInDependency(VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.1.0", /*LETHAL_FIXES = "Dev1A3.LethalFixes",*/ VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
+        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.0", /*LETHAL_FIXES = "Dev1A3.LethalFixes",*/ VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
         internal static new ManualLogSource Logger;
 
         internal static ConfigEntry<bool>configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings, configOnlyOneBarber;
@@ -311,7 +311,13 @@ namespace BarberFixes
             __instance.agent.speed = 0f;
             ___snareIntervalTimer = 100f;
 
-
+            GameObject meshContainer = __instance.GetComponentInChildren<EnemyAICollisionDetect>()?.gameObject;
+            if (meshContainer != null && !meshContainer.GetComponent<Rigidbody>())
+            {
+                Rigidbody rb = meshContainer.AddComponent<Rigidbody>();
+                rb.isKinematic = true;
+                rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            }
         }
 
         [HarmonyPatch(typeof(ClaySurgeonAI), nameof(ClaySurgeonAI.OnCollideWithPlayer))]
