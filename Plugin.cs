@@ -17,7 +17,7 @@ namespace BarberFixes
     [BepInDependency(VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.0", /*LETHAL_FIXES = "Dev1A3.LethalFixes",*/ VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
+        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.1", /*LETHAL_FIXES = "Dev1A3.LethalFixes",*/ VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
         internal static new ManualLogSource Logger;
 
         internal static ConfigEntry<bool>configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings, configOnlyOneBarber;
@@ -149,7 +149,7 @@ namespace BarberFixes
                     if (codes[i].opcode == OpCodes.Call && (MethodInfo)codes[i].operand == OBJECT_DESTROY && codes[i - 2].opcode == OpCodes.Ldfld && (FieldInfo)codes[i - 2].operand == MUSIC_AUDIO_2)
                     {
                         codes.RemoveRange(i - 3, 4);
-                        Plugin.Logger.LogDebug("Transpiler (ListenToMasterSurgeon): Don't destroy \"musicAudio2\" (causes NullReferenceException)");
+                        Plugin.Logger.LogDebug("Transpiler (ListenToMasterSurgeon): Don't destroy \"musicAudio2\" (causes NRE)");
                         i -= 3;
                     }
 
@@ -188,7 +188,7 @@ namespace BarberFixes
                 else if (codes[i].opcode == OpCodes.Call && (MethodInfo)codes[i].operand == OBJECT_DESTROY && codes[i - 2].opcode == OpCodes.Ldfld && (FieldInfo)codes[i - 2].operand == MUSIC_AUDIO_2)
                 {
                     codes.RemoveRange(i - 6, 7);
-                    Plugin.Logger.LogDebug("Transpiler (SyncMasterClaySurgeonClientRpc): Don't destroy \"musicAudio2\" (causes NullReferenceException)");
+                    Plugin.Logger.LogDebug("Transpiler (SyncMasterClaySurgeonClientRpc): Don't destroy \"musicAudio2\" (causes NRE)");
                     i -= 6;
                 }
             }
@@ -337,7 +337,7 @@ namespace BarberFixes
         }
     }
 
-    internal class DanceClock
+    public class DanceClock
     {
         static bool ticking;
         static float startingInterval = 2.75f, endingInterval = 1.25f;
@@ -353,7 +353,7 @@ namespace BarberFixes
             TimeOfDay.Instance.onHourChanged.AddListener(Tick);
         }
 
-        static void Tick()
+        public static void Tick()
         {
             float currentInterval = Mathf.Lerp(startingInterval, endingInterval, (float)TimeOfDay.Instance.hour / TimeOfDay.Instance.numberOfHours);
             foreach (ClaySurgeonAI barber in Object.FindObjectsOfType<ClaySurgeonAI>())
