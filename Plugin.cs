@@ -13,11 +13,11 @@ using UnityEngine;
 namespace BarberFixes
 {
     [BepInPlugin(PLUGIN_GUID, PLUGIN_NAME, PLUGIN_VERSION)]
-    //[BepInDependency(LETHAL_FIXES, BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency(VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.1", /*LETHAL_FIXES = "Dev1A3.LethalFixes",*/ VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
+        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.2",
+                     VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
         internal static new ManualLogSource Logger;
 
         internal static ConfigEntry<bool>configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings, configOnlyOneBarber;
@@ -28,12 +28,7 @@ namespace BarberFixes
         {
             Logger = base.Logger;
 
-            /*if (Chainloader.PluginInfos.ContainsKey(LETHAL_FIXES))
-            {
-                CAN_SPAWN_IN_GROUPS = true;
-                Logger.LogInfo("CROSS-COMPATIBILITY - LethalFixes detected");
-            }
-            else*/ if (Chainloader.PluginInfos.ContainsKey(VENT_SPAWN_FIX))
+            if (Chainloader.PluginInfos.ContainsKey(VENT_SPAWN_FIX))
             {
                 CAN_SPAWN_IN_GROUPS = true;
                 Logger.LogInfo("CROSS-COMPATIBILITY - VentSpawnFix detected");
@@ -43,7 +38,7 @@ namespace BarberFixes
                 "Spawning",
                 "ApplySpawningSettings",
                 false,
-                "The rest of the \"Spawning\" section's settings are only applied if this is enabled. You should disable this if you are using something else to configure enemy variables! (i.e. LethalQuantities)");
+                "The rest of the \"Spawning\" section's settings are only applied if this is enabled. You should disable this if you are using something else to configure enemy variables! (i.e. Clay Surgeon Overhaul, Lethal Quantities)");
 
             configOnlyOneBarber = Config.Bind(
                 "Spawning",
@@ -266,9 +261,9 @@ namespace BarberFixes
             }
         }
 
-        [HarmonyPatch(typeof(RoundManager), nameof(RoundManager.PlotOutEnemiesForNextHour))]
+        [HarmonyPatch(typeof(RoundManager), "AdvanceHourAndSpawnNewBatchOfEnemies")]
         [HarmonyPrefix]
-        static void PrePlotOutEnemiesForNextHour(RoundManager __instance)
+        static void PreAdvanceHourAndSpawnNewBatchOfEnemies(RoundManager __instance)
         {
             if (!__instance.IsServer || !Plugin.configApplySpawningSettings.Value)
                 return;
@@ -276,18 +271,30 @@ namespace BarberFixes
             int spawnInGroupsOf = 1;
             if (Plugin.configSpawnInPairs.Value)
             {
-                if (Plugin.CAN_SPAWN_IN_GROUPS)
-                {
-                    if (Plugin.configOnlyOneBarber.Value)
-                        Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but will be ignored as \"OnlyOneBarber\" is also enabled.");
-                    else
-                        spawnInGroupsOf = 2;
-                }
+                if (Plugin.configOnlyOneBarber.Value)
+                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but will be ignored as \"OnlyOneBarber\" is also enabled.");
                 else
-                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but VentSpawnFix was not detected. Enemies spawning from vents in groups is unsupported by vanilla, so this setting won't work!");
+                {
+                    spawnInGroupsOf = 2;
+                    if (!Plugin.CAN_SPAWN_IN_GROUPS)
+                        Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but VentSpawnFix was not detected. Enemies spawning from vents in groups is unsupported by vanilla, so this setting won't work!");
+                }
             }
 
             EnemyType barber = __instance.currentLevel.Enemies.FirstOrDefault(enemy => enemy.enemyType?.name == "ClaySurgeon")?.enemyType;
+
+            // fallbacks (custom moons)
+            if (barber == null)
+            {
+                barber = __instance.currentLevel.OutsideEnemies.FirstOrDefault(enemy => enemy.enemyType?.name == "ClaySurgeon")?.enemyType ?? __instance.currentLevel.DaytimeEnemies.FirstOrDefault(enemy => enemy.enemyType?.name == "ClaySurgeon")?.enemyType;
+
+                if (barber != null && !Plugin.CAN_SPAWN_IN_GROUPS)
+                {
+                    // suppress warnings because user has a moon that spawns barbers outside
+                    Plugin.CAN_SPAWN_IN_GROUPS = true;
+                }
+            }
+
             if (barber != null)
             {
                 if (barber.spawnInGroupsOf != spawnInGroupsOf)
