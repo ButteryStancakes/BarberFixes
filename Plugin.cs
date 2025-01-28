@@ -16,11 +16,12 @@ namespace BarberFixes
     [BepInDependency(VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.2",
+        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.3",
                      VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
         internal static new ManualLogSource Logger;
 
-        internal static ConfigEntry<bool>configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings, configOnlyOneBarber;
+        internal static ConfigEntry<bool> configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings;
+        internal static ConfigEntry<int> configMaxCount;
 
         internal static bool CAN_SPAWN_IN_GROUPS;
 
@@ -38,25 +39,34 @@ namespace BarberFixes
                 "Spawning",
                 "ApplySpawningSettings",
                 false,
-                "The rest of the \"Spawning\" section's settings are only applied if this is enabled. You should disable this if you are using something else to configure enemy variables! (i.e. Clay Surgeon Overhaul, Lethal Quantities)");
+                "The rest of the \"Spawning\" section's settings are only applied if this is enabled. You should enable this only if you aren't using something else to configure enemy variables! (i.e. Clay Surgeon Overhaul, Lethal Quantities)");
 
-            configOnlyOneBarber = Config.Bind(
+            configMaxCount = Config.Bind(
                 "Spawning",
-                "OnlyOneBarber",
-                true,
-                "(Host only) Only allow 1 Barber to spawn each day. Disabling this will raise the limit to 8 per day, as it was before v62.");
+                "MaxCount",
+                1,
+                new ConfigDescription(
+                    "(Host only) How many Barbers are allowed to spawn? In v62+, this is set to 1. In v55-v61, this was set to 8.",
+                    new AcceptableValueRange<int>(1, 8)));
 
             configSpawnInPairs = Config.Bind(
                 "Spawning",
                 "SpawnInPairs",
                 false,
-                "(Host only) Spawns Barbers in groups of 2, like in beta v55. This does nothing when \"OnlyOneBarber\" is enabled.\nNOTE: This REQUIRES VentSpawnFix to work!");
+                "(Host only) Spawns Barbers in groups of 2, like in beta v55. This does nothing when \"MaxCount\" is set to 1.\nNOTE: This REQUIRES VentSpawnFix to work!");
 
             configDrumrollFromAll = Config.Bind(
                 "Music",
                 "DrumrollFromAll",
                 false,
                 "If true, all Barbers will play the drumroll audio before they \"jump\". If false, only the master Barber will drumroll.\nThis is false in vanilla, although whether that's by design or a bug is unclear.");
+
+            // migrate old config
+            bool onlyOneBarber = Config.Bind("Spawning", "OnlyOneBarber", true, "Legacy setting, doesn't work").Value;
+            if (!onlyOneBarber && configMaxCount.Value == 1)
+                configMaxCount.Value = 8;
+            Config.Remove(Config["Spawning", "OnlyOneBarber"].Definition);
+            Config.Save();
 
             new Harmony(PLUGIN_GUID).PatchAll();
 
@@ -78,7 +88,7 @@ namespace BarberFixes
             if (!__instance.IsServer)
                 return false;
 
-            ClaySurgeonAI[] barbers = Object.FindObjectsOfType<ClaySurgeonAI>();
+            ClaySurgeonAI[] barbers = Object.FindObjectsByType<ClaySurgeonAI>(FindObjectsSortMode.None);
 
             // only barber on the map; become the master
             if (barbers.Length == 1)
@@ -271,8 +281,8 @@ namespace BarberFixes
             int spawnInGroupsOf = 1;
             if (Plugin.configSpawnInPairs.Value)
             {
-                if (Plugin.configOnlyOneBarber.Value)
-                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but will be ignored as \"OnlyOneBarber\" is also enabled.");
+                if (Plugin.configMaxCount.Value < 2)
+                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but will be ignored as \"MaxCount\" is less than 2.");
                 else
                 {
                     spawnInGroupsOf = 2;
@@ -302,7 +312,7 @@ namespace BarberFixes
                     Plugin.Logger.LogDebug($"ClaySurgeon.spawnInGroupsOf: {barber.spawnInGroupsOf} -> {spawnInGroupsOf}");
                     barber.spawnInGroupsOf = spawnInGroupsOf;
                 }
-                int maxCount = Plugin.configOnlyOneBarber.Value ? 1 : 8;
+                int maxCount = Plugin.configMaxCount.Value;
                 if (barber.MaxCount != maxCount)
                 {
                     Plugin.Logger.LogDebug($"ClaySurgeon.MaxCount: {barber.MaxCount} -> {maxCount}");
@@ -363,7 +373,7 @@ namespace BarberFixes
         public static void Tick()
         {
             float currentInterval = Mathf.Lerp(startingInterval, endingInterval, (float)TimeOfDay.Instance.hour / TimeOfDay.Instance.numberOfHours);
-            foreach (ClaySurgeonAI barber in Object.FindObjectsOfType<ClaySurgeonAI>())
+            foreach (ClaySurgeonAI barber in Object.FindObjectsByType<ClaySurgeonAI>(FindObjectsSortMode.None))
                 barber.currentInterval = currentInterval;
         }
 
