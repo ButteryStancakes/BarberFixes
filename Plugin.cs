@@ -13,15 +13,19 @@ using UnityEngine;
 namespace BarberFixes
 {
     [BepInPlugin(PLUGIN_GUID, PLUGIN_NAME, PLUGIN_VERSION)]
-    [BepInDependency(VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
+    [BepInDependency(GUID_VENT_SPAWN_FIX, BepInDependency.DependencyFlags.SoftDependency)]
+    [BepInDependency(GUID_LOBBY_COMPATIBILITY, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
-        const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.2.3",
-                     VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix";
+        internal const string PLUGIN_GUID = "butterystancakes.lethalcompany.barberfixes", PLUGIN_NAME = "Barber Fixes", PLUGIN_VERSION = "1.3.0";
+
+        const string GUID_VENT_SPAWN_FIX = "butterystancakes.lethalcompany.ventspawnfix",
+                     GUID_LOBBY_COMPATIBILITY = "BMX.LobbyCompatibility";
+
         internal static new ManualLogSource Logger;
 
-        internal static ConfigEntry<bool> configSpawnInPairs, configDrumrollFromAll, configApplySpawningSettings;
-        internal static ConfigEntry<int> configMaxCount;
+        internal static ConfigEntry<bool> configDrumrollFromAll, configApplySpawningSettings;
+        internal static ConfigEntry<int> configMaxCount, configSpawnInGroupsOf;
 
         internal static bool CAN_SPAWN_IN_GROUPS;
 
@@ -29,10 +33,16 @@ namespace BarberFixes
         {
             Logger = base.Logger;
 
-            if (Chainloader.PluginInfos.ContainsKey(VENT_SPAWN_FIX))
+            if (Chainloader.PluginInfos.ContainsKey(GUID_VENT_SPAWN_FIX))
             {
                 CAN_SPAWN_IN_GROUPS = true;
                 Logger.LogInfo("CROSS-COMPATIBILITY - VentSpawnFix detected");
+            }
+
+            if (Chainloader.PluginInfos.ContainsKey(GUID_LOBBY_COMPATIBILITY))
+            {
+                Logger.LogInfo("CROSS-COMPATIBILITY - Lobby Compatibility detected");
+                LobbyCompatibility.Init();
             }
 
             configApplySpawningSettings = Config.Bind(
@@ -46,14 +56,16 @@ namespace BarberFixes
                 "MaxCount",
                 1,
                 new ConfigDescription(
-                    "(Host only) How many Barbers are allowed to spawn? In v62+, this is set to 1. In v55-v61, this was set to 8.",
-                    new AcceptableValueRange<int>(1, 8)));
+                    "(Host only) How many Barbers are allowed to spawn?\nIn v62+, this is set to 1. In v55-v61, this was set to 8.",
+                    new AcceptableValueRange<int>(1, 20)));
 
-            configSpawnInPairs = Config.Bind(
+            configSpawnInGroupsOf = Config.Bind(
                 "Spawning",
-                "SpawnInPairs",
-                false,
-                "(Host only) Spawns Barbers in groups of 2, like in beta v55. This does nothing when \"MaxCount\" is set to 1.\nNOTE: This REQUIRES VentSpawnFix to work!");
+                "SpawnInGroupsOf",
+                1,
+                new ConfigDescription(
+                    "(Host only) When a Barber spawns, should additional Barbers attempt to spawn?\nIn v56+, this is set to 1. In v55, this was set to 2.\nNOTE: This REQUIRES VentSpawnFix to work!",
+                    new AcceptableValueRange<int>(1, 4)));
 
             configDrumrollFromAll = Config.Bind(
                 "Music",
@@ -65,7 +77,11 @@ namespace BarberFixes
             bool onlyOneBarber = Config.Bind("Spawning", "OnlyOneBarber", true, "Legacy setting, doesn't work").Value;
             if (!onlyOneBarber && configMaxCount.Value == 1)
                 configMaxCount.Value = 8;
+            bool spawnInPairs = Config.Bind("Spawning", "SpawnInPairs", false, "Legacy setting, doesn't work").Value;
+            if (spawnInPairs && configSpawnInGroupsOf.Value == 1)
+                configSpawnInGroupsOf.Value = 2;
             Config.Remove(Config["Spawning", "OnlyOneBarber"].Definition);
+            Config.Remove(Config["Spawning", "SpawnInPairs"].Definition);
             Config.Save();
 
             new Harmony(PLUGIN_GUID).PatchAll();
@@ -278,19 +294,6 @@ namespace BarberFixes
             if (!__instance.IsServer || !Plugin.configApplySpawningSettings.Value)
                 return;
 
-            int spawnInGroupsOf = 1;
-            if (Plugin.configSpawnInPairs.Value)
-            {
-                if (Plugin.configMaxCount.Value < 2)
-                    Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but will be ignored as \"MaxCount\" is less than 2.");
-                else
-                {
-                    spawnInGroupsOf = 2;
-                    if (!Plugin.CAN_SPAWN_IN_GROUPS)
-                        Plugin.Logger.LogWarning("Config setting \"SpawnInPairs\" has been enabled, but VentSpawnFix was not detected. Enemies spawning from vents in groups is unsupported by vanilla, so this setting won't work!");
-                }
-            }
-
             EnemyType barber = __instance.currentLevel.Enemies.FirstOrDefault(enemy => enemy.enemyType?.name == "ClaySurgeon")?.enemyType;
 
             // fallbacks (custom moons)
@@ -305,19 +308,28 @@ namespace BarberFixes
                 }
             }
 
-            if (barber != null)
+            if (barber == null)
+                return;
+
+            int spawnInGroupsOf = Plugin.configSpawnInGroupsOf.Value;
+            if (spawnInGroupsOf > 1 && !Plugin.CAN_SPAWN_IN_GROUPS)
+                Plugin.Logger.LogWarning("Config setting \"SpawnInGroupsOf\" is greater than 1, but VentSpawnFix was not detected. Enemies spawning from vents in groups is unsupported by vanilla, so this setting won't work!");
+            else if (Plugin.configMaxCount.Value < spawnInGroupsOf)
             {
-                if (barber.spawnInGroupsOf != spawnInGroupsOf)
-                {
-                    Plugin.Logger.LogDebug($"ClaySurgeon.spawnInGroupsOf: {barber.spawnInGroupsOf} -> {spawnInGroupsOf}");
-                    barber.spawnInGroupsOf = spawnInGroupsOf;
-                }
-                int maxCount = Plugin.configMaxCount.Value;
-                if (barber.MaxCount != maxCount)
-                {
-                    Plugin.Logger.LogDebug($"ClaySurgeon.MaxCount: {barber.MaxCount} -> {maxCount}");
-                    barber.MaxCount = maxCount;
-                }
+                Plugin.Logger.LogWarning("Config setting \"SpawnInGroupsOf\" exceeds \"MaxCount\" and will be capped.");
+                spawnInGroupsOf = Plugin.configMaxCount.Value;
+            }
+
+            if (barber.spawnInGroupsOf != spawnInGroupsOf)
+            {
+                Plugin.Logger.LogDebug($"ClaySurgeon.spawnInGroupsOf: {barber.spawnInGroupsOf} -> {spawnInGroupsOf}");
+                barber.spawnInGroupsOf = spawnInGroupsOf;
+            }
+            int maxCount = Plugin.configMaxCount.Value;
+            if (barber.MaxCount != maxCount)
+            {
+                Plugin.Logger.LogDebug($"ClaySurgeon.MaxCount: {barber.MaxCount} -> {maxCount}");
+                barber.MaxCount = maxCount;
             }
         }
 
